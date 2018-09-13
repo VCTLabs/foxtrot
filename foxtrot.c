@@ -358,8 +358,11 @@ static void get_auth_data(
     (void)srv;
     (void)shr;
     strncpy(wg, SMB_WORKGROUP, wglen);
+    wg[wglen - 1] = '\0';
     strncpy(un, SMB_USERNAME, unlen);
+    un[unlen - 1] = '\0';
     strncpy(pw, SMB_PASSWORD, pwlen);
+    pw[pwlen - 1] = '\0';
 }
 
 static void samba_init()
