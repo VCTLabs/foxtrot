@@ -34,6 +34,7 @@ static time_t server_list_mtime;
 static char *smb_workgroup = "";
 static char *smb_username = "";
 static char *smb_password = "";
+static char *smb_url = "";
 
 /* Types */
 struct Server
@@ -129,21 +130,26 @@ static void update_server_list()
     }
 }
 
-static char *mksmbpath(char *buf, const char *path)
+static char *mksmbpath(const char *path)
 {
     size_t len;
+    char *smbpath = NULL;
 
-    len = strlen(path);
-    if (5 + len + 1 > MAX_PATH) return NULL;
-    memcpy(buf, "smb:/", 5);
-    memcpy(buf + 5, path, len + 1);
+    /* 2 extra bytes for separating slash and terminating null */
+    len = strlen(smb_url) + strlen(path) + 2;
+    smbpath = calloc(len, sizeof(char));
 
-    return buf;
+    if (smbpath == NULL) return NULL;
+    strncat(smbpath, smb_url, len);
+    strncat(smbpath, "/", len);
+    strncat(smbpath, path, len);
+
+    return smbpath;
 }
 
 static int foxtrot_getattr(const char *path, struct stat *stbuf)
 {
-    char smbpath[MAX_PATH];
+    char *smbpath = NULL;
     int result;
 
 #if TRACE_INVOCATIONS
@@ -158,25 +164,8 @@ static int foxtrot_getattr(const char *path, struct stat *stbuf)
         return -ENOENT;
     }
 
-    if (path[1] == '\0')
-    {
-        /* Root directory */
-        stbuf->st_mode  = S_IFDIR | 0755;
-        stbuf->st_nlink = 2 + server_list_size;
-        return 0;
-    }
-
-    if (strchr(path + 1, '/') == NULL)
-    {
-        /* Directory in the root */
-        stbuf->st_mode  = S_IFDIR | 0755;
-        stbuf->st_nlink = 2;
-        /* The link count is wrong, but retrieving the correct value would make
-           listing the root directory very slow! */
-        return 0;
-    }
-
-    if (mksmbpath(smbpath, path) == NULL)
+    smbpath = mksmbpath(path);
+    if (smbpath == NULL)
     {
         WARN("Path too long");
         return -ENOENT;
@@ -184,6 +173,7 @@ static int foxtrot_getattr(const char *path, struct stat *stbuf)
 
     pthread_mutex_lock(&global_mutex);
     if (smbc_stat(smbpath, stbuf) == 0) result = 0; else result = -errno;
+    free(smbpath);
     pthread_mutex_unlock(&global_mutex);
 
     return result;
@@ -199,62 +189,46 @@ static int foxtrot_readdir( const char *path, void *buf, fuse_fill_dir_t filler,
     fprintf(stderr, "readdir path=%s\n", path);
 #endif
 
-    if (strcmp(path, "/") == 0)
+    int dh;
+    struct smbc_dirent *de;
+    char *smbpath = NULL;
+
+    smbpath = mksmbpath(path);
+    if (smbpath == NULL)
     {
-        struct Server *server;
-
-        filler(buf, ".", NULL, 0);
-        filler(buf, "..", NULL, 0);
-
-        pthread_mutex_lock(&global_mutex);
-        update_server_list();
-        for (server = server_list; server != NULL; server = server->next)
-        {
-            filler(buf, server->name, NULL, 0);
-        }
-        pthread_mutex_unlock(&global_mutex);
+        WARN("Path too long");
+        return -ENOENT;
     }
-    else
+
+    pthread_mutex_lock(&global_mutex);
+    dh = smbc_opendir(smbpath);
+    free(smbpath);
+    if (dh < 0)
     {
-        int dh;
-        struct smbc_dirent *de;
-        char smbpath[MAX_PATH];
-
-        if (mksmbpath(smbpath, path) == NULL)
-        {
-            WARN("Path too long");
-            return -ENOENT;
-        }
-
-        pthread_mutex_lock(&global_mutex);
-        dh = smbc_opendir(smbpath);
-        if (dh < 0)
-        {
-            WARN("smbc_opendir failed");
-            pthread_mutex_unlock(&global_mutex);
-            return -ENOENT;
-        }
-        while ((de = smbc_readdir(dh)) != NULL)
-        {
-            switch (de->smbc_type)
-            {
-            case SMBC_FILE_SHARE:
-            case SMBC_DIR:
-            case SMBC_FILE:
-            case SMBC_LINK:
-                filler(buf, de->name, NULL, 0);
-            }
-        }
-        smbc_closedir(dh);
+        WARN("smbc_opendir failed");
         pthread_mutex_unlock(&global_mutex);
+        return -ENOENT;
     }
+    while ((de = smbc_readdir(dh)) != NULL)
+    {
+        switch (de->smbc_type)
+        {
+        case SMBC_FILE_SHARE:
+        case SMBC_DIR:
+        case SMBC_FILE:
+        case SMBC_LINK:
+            filler(buf, de->name, NULL, 0);
+        }
+    }
+    smbc_closedir(dh);
+    pthread_mutex_unlock(&global_mutex);
 
     return 0;
 }
 
 static int foxtrot_open(const char *path, struct fuse_file_info *fi)
 {
-    char smbpath[MAX_PATH];
+    char *smbpath = NULL;
     int fd;
 
 #if TRACE_INVOCATIONS
@@ -265,7 +239,8 @@ static int foxtrot_open(const char *path, struct fuse_file_info *fi)
     if((fi->flags & 3) != O_RDONLY)
         return -EACCES;
 
-    if (mksmbpath(smbpath, path) == NULL)
+    smbpath = mksmbpath(path);
+    if (smbpath == NULL)
     {
         WARN("Path too long");
         return -ENOENT;
@@ -273,6 +248,7 @@ static int foxtrot_open(const char *path, struct fuse_file_info *fi)
 
     pthread_mutex_lock(&global_mutex);
     fd = smbc_open(smbpath, O_RDONLY, 0644);
+    free(smbpath);
     pthread_mutex_unlock(&global_mutex);
     if (fd < 0)
     {
@@ -405,6 +381,7 @@ int main(int argc, char *argv[])
 	{ "workgroup", required_argument, 0, 'w' },
 	{ "username", required_argument, 0, 'u' },
 	{ "password", required_argument, 0, 'p' },
+	{ "url", required_argument, 0, 'U' },
         { NULL, 0, 0, 0 }
     };
     int c, opt_idx = 0;
@@ -425,6 +402,10 @@ int main(int argc, char *argv[])
 
             case 'p':
                 smb_password = strdup(optarg);
+                break;
+
+            case 'U':
+                smb_url = strdup(optarg);
                 break;
         }
     }
