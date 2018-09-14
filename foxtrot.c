@@ -15,11 +15,11 @@
 #include <libsmbclient.h>
 
 /* Definitions */
-#define LOGFILE                 "/var/log/foxtrot/foxtrot.log"
-#define HOSTSFILE               "/var/cache/foxtrot/hosts.txt"
-#define SMB_WORKGROUP           "CAMPUSLAAN 27"
-#define SMB_USERNAME            "campus"
-#define SMB_PASSWORD            "campus"
+#define LOGFILE                 "/tmp/foxtrot.log"
+#define HOSTSFILE               "/tmp/hosts.txt"
+#define SMB_WORKGROUP           "WORKGROUP"
+#define SMB_USERNAME            "guest"
+#define SMB_PASSWORD            ""
 #define SMB_MAX_PACKET_LENGTH   65536
 #define MAX_PATH                1024
 
