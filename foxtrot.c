@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -17,9 +18,6 @@
 /* Definitions */
 #define LOGFILE                 "/tmp/foxtrot.log"
 #define HOSTSFILE               "/tmp/hosts.txt"
-#define SMB_WORKGROUP           "WORKGROUP"
-#define SMB_USERNAME            "guest"
-#define SMB_PASSWORD            ""
 #define SMB_MAX_PACKET_LENGTH   65536
 #define MAX_PATH                1024
 
@@ -32,6 +30,10 @@ static pthread_mutex_t global_mutex;
 static struct Server *server_list;
 static int server_list_size;
 static time_t server_list_mtime;
+
+static char *smb_workgroup = "";
+static char *smb_username = "";
+static char *smb_password = "";
 
 /* Types */
 struct Server
@@ -357,11 +359,11 @@ static void get_auth_data(
 {
     (void)srv;
     (void)shr;
-    strncpy(wg, SMB_WORKGROUP, wglen);
+    strncpy(wg, smb_workgroup, wglen);
     wg[wglen - 1] = '\0';
-    strncpy(un, SMB_USERNAME, unlen);
+    strncpy(un, smb_username, unlen);
     un[unlen - 1] = '\0';
-    strncpy(pw, SMB_PASSWORD, pwlen);
+    strncpy(pw, smb_password, pwlen);
     pw[pwlen - 1] = '\0';
 }
 
@@ -399,6 +401,42 @@ void foxtrot_destroy(void *private_data)
 int main(int argc, char *argv[])
 {
     struct fuse_operations ops;
+    static struct option long_opts[] = {
+	{ "workgroup", required_argument, 0, 'w' },
+	{ "username", required_argument, 0, 'u' },
+	{ "password", required_argument, 0, 'p' },
+        { NULL, 0, 0, 0 }
+    };
+    int c, opt_idx = 0;
+    char **fuse_argv = calloc(argc, sizeof(char*));
+    int next_fuse_opt_idx = 0;
+
+    while ((c = getopt_long(argc, argv, "w:u:p:", long_opts, &opt_idx)) > 0) 
+    {
+        switch (c) 
+        {
+            case 'w':
+                smb_workgroup = strdup(optarg);
+                break;
+
+            case 'u':
+                smb_username = strdup(optarg);
+                break;
+
+            case 'p':
+                smb_password = strdup(optarg);
+                break;
+        }
+    }
+    if (optind < argc) {
+        fprintf(stderr, "fuse options:\n\t");
+        while (optind < argc)
+        {
+            fprintf(stderr, "%s ", argv[optind]);
+            fuse_argv[next_fuse_opt_idx++] = argv[optind++];
+        }
+        fprintf(stderr, "\n");
+    }
 
     /* Assign FUSE operations */
     memset(&ops, 0, sizeof(ops));
@@ -410,5 +448,5 @@ int main(int argc, char *argv[])
     ops.init    = foxtrot_init;
     ops.destroy = foxtrot_destroy;
 
-    return fuse_main(argc, argv, &ops, NULL);
+    return fuse_main(next_fuse_opt_idx, fuse_argv, &ops, NULL);
 }
