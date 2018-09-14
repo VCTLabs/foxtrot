@@ -17,7 +17,6 @@
 
 /* Definitions */
 #define LOGFILE                 "/tmp/foxtrot.log"
-#define HOSTSFILE               "/tmp/hosts.txt"
 #define SMB_MAX_PACKET_LENGTH   65536
 #define MAX_PATH                1024
 
@@ -27,21 +26,11 @@
 
 /* Global variables */
 static pthread_mutex_t global_mutex;
-static struct Server *server_list;
-static int server_list_size;
-static time_t server_list_mtime;
 
 static char *smb_workgroup = "";
 static char *smb_username = "";
 static char *smb_password = "";
 static char *smb_url = "";
-
-/* Types */
-struct Server
-{
-    struct Server *next;
-    char *name;
-};
 
 
 #define WARN(msg) \
@@ -57,78 +46,6 @@ struct Server
         fprintf(stderr, "%.24s [NOTICE] %s (%s:%d)\n", \
                         ctime(&t), msg, __FILE__, __LINE__); \
     } while(0)
-
-static void free_server_list()
-{
-    struct Server *node, *next;
-
-    node = server_list;
-    while (node != NULL)
-    {
-        next = node->next;
-        free(node->name);
-        free(node);
-        node = next;
-    }
-    server_list = NULL;
-    server_list_size = 0;
-}
-
-static void reload_server_list()
-{
-    FILE *fp;
-    char path[MAX_PATH], *p;
-    struct Server *server;
-
-    fp = fopen(HOSTSFILE, "rt");
-    if (fp == NULL)
-    {
-        WARN("Cannot open hosts file");
-        return;
-    }
-
-    free_server_list();
-
-    while (fgets(path, MAX_PATH, fp) != NULL)
-    {
-        p = strchr(path, '\n');
-        if (p == NULL)
-        {
-            WARN("Truncated line ignored");
-            continue;
-        }
-        *p = '\0';
-
-        /* Allocate new server entry */
-        server = malloc(sizeof(struct Server));
-        assert(server != NULL);
-        server->name = strdup(path);
-        assert(server->name != NULL);
-        server->next = server_list;
-        server_list = server;
-        server_list_size += 1;
-    }
-
-    fclose(fp);
-}
-
-static void update_server_list()
-{
-    struct stat st;
-
-    if (stat(HOSTSFILE, &st) != 0)
-    {
-        WARN("Could not stat hosts file");
-        return;
-    }
-
-    if (st.st_mtime > server_list_mtime)
-    {
-        NOTE("Reloading the server list");
-        reload_server_list();
-        server_list_mtime = st.st_mtime;
-    }
-}
 
 static char *mksmbpath(const char *path)
 {
@@ -359,7 +276,6 @@ void *foxtrot_init(struct fuse_conn_info *conn)
     NOTE("Foxtrot starting up!");
 
     samba_init();
-    update_server_list();
     pthread_mutex_init(&global_mutex, NULL);
 
     return NULL;
@@ -370,7 +286,6 @@ void foxtrot_destroy(void *private_data)
     NOTE("Foxtrot shutting down!");
 
     (void)private_data;
-    free_server_list();
     pthread_mutex_destroy(&global_mutex);
 }
 
