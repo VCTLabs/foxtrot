@@ -303,6 +303,9 @@ int main(int argc, char *argv[])
     char **fuse_argv = calloc(argc, sizeof(char*));
     int next_fuse_opt_idx = 0;
 
+    /* copy program name as first argument */
+    fuse_argv[next_fuse_opt_idx++] = argv[0];
+
     while ((c = getopt_long(argc, argv, "w:u:p:", long_opts, &opt_idx)) > 0) 
     {
         switch (c) 
