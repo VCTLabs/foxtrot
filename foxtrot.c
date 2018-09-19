@@ -383,7 +383,7 @@ static int foxtrot_write(const char *path, const char *buf, size_t size,
     ssize_t result;
 
 #if TRACE_INVOCATIONS
-    fprintf(stderr, "read path=%s fd=%d size=%lld offset=%lld\n",
+    fprintf(stderr, "write path=%s fd=%d size=%lld offset=%lld\n",
                     path, (int)fi->fh, (long long)size, (long long)offset);
 #else
     (void)path;
