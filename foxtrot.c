@@ -505,7 +505,10 @@ static int foxtrot_create(const char *path, mode_t mode, struct fuse_file_info *
     }
 
     pthread_mutex_lock(&global_mutex);
-    fd = smbc_creat(smbpath, mode);
+    /* don't use smbc_creat(), because fuse directs open( O_RDWR|O_CREAT )
+     * syscall here, but smbc_creat() returns file opened with O_WRONLY so
+     * subsequent reads on supposedly read-write descriptor will fail */
+    fd = smbc_open(smbpath, fi->flags | O_CREAT, mode);
     free(smbpath);
     pthread_mutex_unlock(&global_mutex);
     if (fd < 0)
